@@ -1,2 +1,2 @@
-# alphazero
-A simple implementation of DeepMind's AlphaZero in pytorch
+# AlphaZero
+https://arxiv.org/abs/1712.01815
