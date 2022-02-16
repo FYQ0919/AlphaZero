@@ -24,6 +24,8 @@ mcts = MCTS(game=env)
 
 def Train(memory):
   shuffle(memory)
+  p_losses = []
+  v_losses = []
   for e in range( numEpochs ):
     idx = 0
     while( idx < int(len(memory) / batch_size) ):
@@ -36,25 +38,31 @@ def Train(memory):
 
       out_pi, out_v = net(states)
 
-      print(states.shape, target_actions.shape, target_values.shape)
-      print(out_pi.shape, out_v.shape)
+      #print(states.shape, target_actions.shape, target_values.shape)
+      #print(out_pi.shape, out_v.shape)
 
 
       policy_loss = -(target_actions * torch.log(out_pi)).sum(dim=1)
-      #policy_loss = policy_loss.mean()
+      policy_loss = policy_loss.mean()
 
-      #value_loss = torch.sum((target_values-out_v.view(-1))**2)/target_values.size()[0]
+      value_loss = torch.sum((target_values-out_v.view(-1))**2)/target_values.size()[0]
 
-      #total_loss = policy_loss + value_loss
-      #net.optimizer.zero_grad()
-      #total_loss.backward()
-      #net.optimizer.step()
+      total_loss = policy_loss + value_loss
+      net.optimizer.zero_grad()
+      total_loss.backward()
+      net.optimizer.step()
+
+      #p_losses.append(policy_loss)
+      #v_losses.append(value_loss)
+
+      print("Total Loss ", total_loss.item())
 
       idx +=1
       pass
   pass
 
 
+rewards = []
 for _ in range( numIters ):
   buffer = []
   for e in range(numEps):
@@ -72,11 +80,12 @@ for _ in range( numIters ):
       for k, v in root.children.items():
           action_probs[k] = v.visits
       action_probs = action_probs / np.sum(action_probs)   ## normalize
-      buffer.append((canonical_board, player, action_probs))
+      buffer.append((canonical_board, action_probs, player))
 
       action = root.select_action(temperature=0)
       state, current_player = env.get_next_state(state, player, action)
       reward = env.get_reward_for_player(state, player)
+      rewards.append(reward)
 
       if reward is not None:
         ret = []
@@ -86,6 +95,7 @@ for _ in range( numIters ):
           DONE = True
           break
 
-    print(e)
+    #print( np.mean(np.array(rewards)) )
+    #print(rewards[-1])
     Train(buffer)
 
