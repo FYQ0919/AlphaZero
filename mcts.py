@@ -5,9 +5,9 @@ import numpy as np
 class Node:
   def __init__(self, prior, player):
     self.visits = 0
-    self.value = 0
+    self.value  = 0
     self.prior  = prior   # prior policy probability
-    self.action = player
+    self.player = player
     self.children = {} 
     self.state = None
 
@@ -41,14 +41,27 @@ class Node:
         best_score = UCBscore
         best_child = child
         best_action = act
-      
     return best_action, best_child
+
+  def select_action(self, temperature=0):
+    visit_counts = np.array([c.visits for c in self.children.values()])
+    actions = [action for action in self.children.keys()]
+    if temperature == 0:
+      action = actions[np.argmax(visit_counts)]
+    elif temperature == float("inf"):
+      action = np.random.choice(actions)
+    else:
+      dist = visit_counts ** (1 / temperature)
+      dist = dist / sum(dist)
+      action = np.random.choice(actions, p=dist)
+    return action
+
 
 
 class MCTS:
   def __init__(self, game):
     self.env = game
-    self.simulations = 3
+    self.simulations = 100
 
   def run(self, model, state, player):
     root = Node(0, player)
@@ -88,6 +101,7 @@ class MCTS:
         action_probs /= np.sum(action_probs)
         node.expand(next_state, -parent.player, action_probs)
       self.backpropagate(search_path, value, -parent.player)
+    return root
 
   def backpropagate(self, search_path, value, player):
     """
@@ -98,15 +112,17 @@ class MCTS:
       node.value += value if node.player == player else -value
       node.visits+= 1
 
-from Game import Connect2Game
-from network import ActorCritic
+if __name__ == '__main__':
 
-env = Connect2Game()
-net = ActorCritic(env.observation_space, env.action_space)
+  from Game import Connect2Game
+  from network import ActorCritic
 
-state = env.reset() 
+  env = Connect2Game()
+  net = ActorCritic(env.observation_space, env.action_space)
 
-mcts = MCTS(game=env)
-mcts.run( net, state, 1)
+  state = env.reset() 
+
+  mcts = MCTS(game=env)
+  mcts.run( net, state, 1)
 
 

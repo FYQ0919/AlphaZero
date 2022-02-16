@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import torch.nn.functional as F
 
 class ActorCritic(nn.Module):
@@ -20,6 +21,7 @@ class ActorCritic(nn.Module):
       nn.Linear(16, 1),
       nn.Tanh(),
     )
+    self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
   def forward(self, state):
     action = self.fc_actor(state)
@@ -30,7 +32,7 @@ class ActorCritic(nn.Module):
     obs = torch.tensor(obs).float().to('cpu') 
     obs = obs.view(1, obs.shape[0])
     policy, value = self.forward(obs)
-    return policy.data.cpu().numpy()[0], value.data.cpu().numpy()[0]
+    return policy.detach().numpy()[0], value.detach().numpy()[0]
 
 
 
