@@ -41,10 +41,12 @@ class Connect2Game:
         return (b, -player)
 
     def has_legal_moves(self, board):
-        for index in range(self.columns):
-            if board[index] == 0:
-                return True
-        return False
+      #for index in range(self.columns):
+      #  if board[index] == 0:
+      #    return True
+      #return False
+      return 0 in board
+        
 
     def get_valid_moves(self, board):
       ## All moves are invalid by default
@@ -54,7 +56,7 @@ class Connect2Game:
       #    if board[index] == 0:
       #        valid_moves[index] = 1
       #return valid_moves
-      return [0 if x == 0 else 1 for x in board ]
+      return [1 if x == 0 else 0 for x in board ]
 
     def is_win(self, board, player):
         count = 0

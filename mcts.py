@@ -56,73 +56,76 @@ class Node:
       action = np.random.choice(actions, p=dist)
     return action
 
+def backpropagate(search_path, value, player):
+  """
+  At the end of a simulation, we propagate the evaluation all the way up the tree
+  to the root.
+  """
+  for node in reversed(search_path):
+    node.value += value if node.player == player else -value
+    node.visits+= 1
 
 
-class MCTS:
-  def __init__(self, game):
-    self.env = game
-    self.simulations = 100
+def MCTS(model, state, player, env, simulations=100):
+  root = Node(0, player)
 
-  def run(self, model, state, player):
-    root = Node(0, player)
+  ## EXPAND root
+  action_probs, _ = model.predict(state)
+  valid_moves = env.get_valid_moves(state)
 
-    ## EXPAND root
-    action_probs, _ = model.predict(state)
-    valid_moves = self.env.get_valid_moves(state)
-    action_probs[valid_moves] = 1  # mask invalid moves
-    action_probs /= np.sum(action_probs)
-    root.expand(state, player, action_probs)
+  #action_probs[valid_moves] = 1  # mask invalid moves
+  action_probs = action_probs * valid_moves  # mask invalid moves
+  print( action_probs)
 
-    for _ in range(self.simulations):
-      node = root 
-      search_path = [node]  
+  action_probs /= np.sum(action_probs)
+  root.expand(state, player, action_probs)
 
-      ## SELECT
-      while node.expanded():
-        action, node = node.select_child()
-        search_path.append(node)
-      
-      parent = search_path[-2] # ??????? lists will allways have 2 elements parent and best child??
-      state = parent.state     
+  for _ in range(simulations):
+    node = root 
+    search_path = [node]  
 
-      # Now we're at a leaf node and we would like to expand
-      # Players always play from their own perspective
-      next_state, _ = self.env.get_next_state(state, player=1, action=action)
-      # Get the board from the perspective of the other player
-      next_state = self.env.get_canonical_board(next_state, player=-1)
+    ## SELECT
+    while node.expanded():
+      action, node = node.select_child()
+      search_path.append(node)
+    
+    parent = search_path[-2] # ??????? lists will allways have 2 elements parent and best child??
+    state = parent.state     
 
-      ## EXPAND AND ROLLOUT
-      # The value of the new state from the perspective of the other player, None if game is not over
-      value = self.env.get_reward_for_player(next_state, player=1)
-      if value is None:
-        action_probs, value = model.predict(state)
-        valid_moves = self.env.get_valid_moves(state)
-        action_probs[valid_moves] = 1  # mask invalid moves
-        action_probs /= np.sum(action_probs)
-        node.expand(next_state, -parent.player, action_probs)
-      self.backpropagate(search_path, value, -parent.player)
-    return root
+    # Now we're at a leaf node and we would like to expand
+    # Players always play from their own perspective
+    next_state, _ = env.get_next_state(state, player=1, action=action)
+    # Get the board from the perspective of the other player
+    next_state = env.get_canonical_board(next_state, player=-1)
 
-  def backpropagate(self, search_path, value, player):
-    """
-    At the end of a simulation, we propagate the evaluation all the way up the tree
-    to the root.
-    """
-    for node in reversed(search_path):
-      node.value += value if node.player == player else -value
-      node.visits+= 1
+    ## EXPAND AND ROLLOUT
+    # The value of the new state from the perspective of the other player, None if game is not over
+    value = env.get_reward_for_player(next_state, player=1)
+    if value is None:
+      action_probs, value = model.predict(state)
+      valid_moves = env.get_valid_moves(state)
+      #action_probs[valid_moves] = 1  # mask invalid moves
+      action_probs = action_probs * valid_moves  # mask invalid moves
+      action_probs /= np.sum(action_probs)
+      node.expand(next_state, -parent.player, action_probs)
+    backpropagate(search_path, value, -parent.player)
+  return root
 
 if __name__ == '__main__':
 
   from Game import Connect2Game
   from network import ActorCritic
+    
+  class MockModel():
+    # starting board is: [0, 0, 1, -1]
+    def predict(self, state):
+      return np.array([0.26, 0.24, 0.24, 0.26]), 0.0001
 
+  #net = ActorCritic(env.observation_space, env.action_space)
+  net = MockModel()
   env = Connect2Game()
-  net = ActorCritic(env.observation_space, env.action_space)
 
   state = env.reset() 
-
-  mcts = MCTS(game=env)
-  mcts.run( net, state, 1)
+  root = MCTS( net, state, 1, env,simulations=100)
 
 

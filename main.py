@@ -1,4 +1,3 @@
-
 import os
 import numpy as np
 import torch
@@ -19,8 +18,6 @@ numItersForTrainExamplesHistory = 20
 
 env = Connect2Game()
 net = ActorCritic(env.observation_space, env.action_space)
-state = env.reset() 
-mcts = MCTS(game=env)
 
 def Train(memory):
   shuffle(memory)
@@ -73,8 +70,7 @@ for _ in range( numIters ):
 
     while not DONE:
       canonical_board = env.get_canonical_board(state, player)
-      mcts = MCTS(game=env)
-      root = mcts.run(net, canonical_board, player=1)
+      root = MCTS( net, canonical_board, 1, env,simulations=100)
 
       action_probs = [0 for _ in range(env.action_space.n)]
       for k, v in root.children.items():
@@ -85,6 +81,7 @@ for _ in range( numIters ):
       action = root.select_action(temperature=0)
       state, current_player = env.get_next_state(state, player, action)
       reward = env.get_reward_for_player(state, player)
+
       rewards.append(reward)
 
       if reward is not None:
