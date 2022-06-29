@@ -5,8 +5,10 @@ Credits to: https://github.com/geohot/ai-notebooks
 '''
 
 class TicTacToe():
-  def __init__(self):
+  def __init__(self, state=None):
     self.reset()
+    if state is not None:
+      self.state = state
   class observation_space: shape = (11,)
   class action_space: n = 9
       
