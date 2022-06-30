@@ -16,7 +16,7 @@ class TicTacToe():
     # [0->9:board, 10:win or loose, 11:current player turn]
     self.state = [0]*11
     # randomly pick starting player
-    self.state[-1] = np.random.choice([-1,1])
+    self.state[-1] = 1 #np.random.choice([-1,1])
     self.done = False
     return self.state
 

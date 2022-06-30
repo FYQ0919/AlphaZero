@@ -11,12 +11,12 @@ class Node:
     self.children = {} 
     self.state = None
 
-  def Value(self):
+  def Value(self) -> bool:
     if self.visits == 0:
         return 0
     return self.value / self.visits
 
-  def expanded(self):
+  def expanded(self) ->float:
     return len(self.children) > 0
 
   def expand(self, state, player, action_probs):
@@ -102,7 +102,7 @@ def MCTS(model, state, player, env, simulations=100):
     # The value of the new state from the perspective of the other player, None if game is not over
     value = env.get_reward_for_player(next_state, player=1)
     if value is None:
-      action_probs, value = model.predict(state)
+      action_probs, value = model.predict(next_state)
       valid_moves = env.get_valid_moves(state)
       #action_probs[valid_moves] = 1  # mask invalid moves
       action_probs = action_probs * valid_moves  # mask invalid moves
