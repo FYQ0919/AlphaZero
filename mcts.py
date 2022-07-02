@@ -1,9 +1,42 @@
 import math
 import random
 import numpy as np
+import torch
 
 from game import TicTacToe
 from network import ActorCritic
+
+device='cpu'
+class ReplayBuffer():
+  def __init__(self, obs_dim, act_dim, length=50000):
+    self.states  = np.zeros((length, obs_dim))
+    self.actions = np.zeros((length, act_dim))
+    self.rewards = np.zeros(length)
+    self.values = np.zeros(length)
+    self.dones   = np.zeros(length, dtype=bool)
+    self.size = length
+    self.idx  = 0
+
+  def __len__(self): return self.idx
+
+  def store(self, obs, action, reward, values, done):
+    idx = self.idx % self.size
+    self.idx += 1
+
+    self.states[idx]  = obs
+    self.actions[idx] = action
+    self.rewards[idx] = reward
+    self.values[idx] = values
+    self.dones[idx] = done
+
+  def sample(self, batch_size):
+    indices = np.random.choice(self.size, size=batch_size, replace=False)
+    states  = torch.tensor( self.states[indices] , dtype=torch.float).to(device)
+    actions = torch.tensor( self.actions[indices], dtype=torch.float).to(device)
+    rewards = torch.tensor( self.rewards[indices], dtype=torch.float).to(device)
+    values  = torch.tensor( self.values[indices], dtype=torch.float).to(device)
+    dones   = torch.tensor( self.dones[indices] ).float()
+    return states, actions, rewards, values, dones
 
 class Node:
   def __init__(self, prior: float):
@@ -40,7 +73,6 @@ def select_child(node: Node, min_max_stats=None):
   _, action, child = random.choice(list(filter(lambda x: x[0] == smax, out)))
   return action, child
 
-
 def MCTS(model, observation, num_simulations=10, minimax=True):
   # init root node
   root = Node(0) 
@@ -66,10 +98,10 @@ def MCTS(model, observation, num_simulations=10, minimax=True):
 
     # Now we're at a leaf node and we would like to expand
     parent = search_path[-2]
-    env = TicTacToe(parent.hidden_state)
 
-    #expansion
-    next_state, node.reward, _ = env.step(action_history[-1])
+    #SIMULATION
+    _env = TicTacToe(parent.hidden_state)
+    next_state, node.reward, _ = _env.step(action_history[-1])
 
     # EXPANSION create all the children of the newly expanded node
     policy, value = model.predict(next_state)
@@ -89,22 +121,52 @@ def MCTS(model, observation, num_simulations=10, minimax=True):
   visit_counts = [x[1] for x in sorted(visit_counts)]
   av = np.array(visit_counts).astype(np.float64)
   policy = softmax(av)
+
   return policy, root
+
+env = TicTacToe()
+net = ActorCritic(env.observation_space.shape[0], env.action_space.n)
+memory = ReplayBuffer(env.observation_space.shape[0], env.action_space.n)
+
+def train():
+  if(len(memory) >= 20):
+    for i in range(10):
+      states, actions, rewards, values, dones = memory.sample(32)
+      pi, v = net(states)
+
+      policy_loss = -(actions * torch.log(pi)).sum(dim=1) *(1-dones)
+      policy_loss = policy_loss.mean()
+      value_loss = torch.sum((values-v.view(-1))**2)/values.size()[0]
+
+      loss = policy_loss + value_loss
+      #print(loss)
+
+      net.optimizer.zero_grad()
+      loss.backward()
+      net.optimizer.step()
 
 if __name__ == '__main__':
     
-  env = TicTacToe()
-  net = ActorCritic(env.observation_space.shape[0], env.action_space.n)
 
   # computer can play against itself...and tie!
-  done = False
-  state = env.reset()
-  while not done:
-    policy, node = MCTS(net, state, 10)
-    #print(policy)
-    act = np.random.choice(np.arange(len(policy)), p=policy)
-    #act = policy.argmax()
-    print(act)
-    nstate, reward, done = env.step(act)
-    state = nstate
-    env.render()	
+  scores = []
+  for epi in range(100):
+    done = False
+    state = env.reset()
+    score = 0
+    while not done:
+      policy, node = MCTS(net, state, 10)
+      #print(policy)
+      action = np.random.choice(np.arange(len(policy)), p=policy)
+      #action = policy.argmax()
+      train()
+
+      nstate, reward, done = env.step(action)
+      memory.store(state,action,reward,node.value(),done)
+      #env.render()	
+
+      score += reward
+      state = nstate
+    scores.append(score)
+    print(f'Episode {epi}, return{score}')
+

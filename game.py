@@ -40,14 +40,14 @@ class TicTacToe():
     self.state[-1] *= -1 # change players
 
     # no more empty spots
-    self.done = np.all(np.array(self.state[0:9]) != 0)  
-    #if np.all(np.array(self.state[0:9]) != 0):  
-    #  self.done = True
+    #self.done = np.all(np.array(self.state[0:9]) != 0)  
+    if np.all(np.array(self.state[0:9]) != 0):  
+      self.done = True
       
     return self.state, reward, self.done
 
   def render(self):
-    print(f'Turn {self.state[-1]}')
+    print(f'Turn {self.state[-1]}, Done:{self.done}')
     print(np.array(self.state[0:9]).reshape(3,3))
  
     
