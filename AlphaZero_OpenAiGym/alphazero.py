@@ -61,6 +61,9 @@ class AlphaZero:
   def __init__(self, in_dims, out_dims):
     self.model = ActorCritic(in_dims, out_dims).to(device)
     self.memory = ReplayBuffer(in_dims, out_dims, device=device)
+  def softmax(self, x):
+    e_x = np.exp(x - np.max(x))
+    return e_x / e_x.sum()
 
   def store(self, obs,action,reward,_obs,done):
     self.memory.store(obs,action,reward,_obs,done)
@@ -115,15 +118,44 @@ class AlphaZero:
         node.children[i] = Node(prior=policy[i])
         node.children[i].state = _env
 
-      # BACKPROPAGATE update the state with 
+      # BACKPROPAGATE: update the state with "backpropagate"
       for bnode in reversed(search_path):
-        bnode.value_sum += value
         bnode.visit_count += 1
+        bnode.value_sum += value
         discount = 0.95
         value = bnode.reward + discount * value
-    return policy.argmax().numpy(), root
 
-  def train(self, batch_size=64):
+    # Each node represents a potential action, number of visits to each node - normalized
+    # (by a softmax) represent the probabilty of taking that action. This is our policy
+    visit_counts = [(action, child.visit_count) for action, child in root.children.items()]
+    visit_counts = [x[1] for x in sorted(visit_counts)]
+    av = np.array(visit_counts).astype(np.float64)
+    policy = self.softmax(av)
+    action = np.argmax(policy)
+    return action, value, root
+
+  ## vanila Policy gradient for debugging
+  def debug_get_action(self, obs):
+    policy, value = self.model(torch.tensor(obs))
+    action = torch.argmax(policy).numpy()
+    return action, value 
+
+  def train(self, batch_size=128):
+    if(len(self.memory) >= 1000):
+      for i in range(10):
+        states, actions, rewards, values, dones = self.memory.sample(batch_size)
+        pi, v = self.model(states)
+
+        policy_loss = -(actions * torch.log(pi)).sum(dim=1) #*(1-dones)
+        policy_loss = policy_loss.mean()
+        value_loss = torch.sum((values-v.view(-1))**2)/values.size()[0]
+
+        loss = policy_loss + value_loss
+        #print(loss)
+
+        self.model.optimizer.zero_grad()
+        loss.backward()
+        self.model.optimizer.step()
     pass
 
 from CartPole import CartPole
@@ -131,14 +163,17 @@ env = CartPole()
 agent = AlphaZero(env.observation_space.shape[0], env.action_space.n)
 
 scores, time_step = [], 0
-for epi in range(100):
+for epi in range(1000):
   obs = env.reset()
   while True:
 
-    action, _ = agent.MCTS(env, obs, 1)
+    #env.render()
+    action, value, _ = agent.MCTS(env, obs, 10)
+    #action, value = agent.debug_get_action(obs)
+
     n_obs, reward, done, info = env.step(action)
 
-    agent.store(n_obs,action,reward,1,done)
+    agent.store(n_obs,action,reward,value,done)
     obs = n_obs
 
     agent.train()
