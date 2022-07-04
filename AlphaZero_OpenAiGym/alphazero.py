@@ -1,9 +1,11 @@
 import math
-import torch
 import random
 import numpy as np
 import gym
 from network import ActorCritic 
+
+import torch
+import torch.nn.functional as F
 
 device='cpu'
 
@@ -11,32 +13,26 @@ class ReplayBuffer():
   def __init__(self, obs_dim, act_dim, length=50000, device=device):
     self.states  = np.zeros((length, obs_dim))
     self.actions = np.zeros((length, act_dim))
-    self.rewards = np.zeros(length)
     self.values = np.zeros(length)
-    self.dones   = np.zeros(length, dtype=bool)
     self.size = length
     self.idx  = 0
 
   def __len__(self): return self.idx
 
-  def store(self, obs, action, reward, values, done):
+  def store(self, obs, action, values):
     idx = self.idx % self.size
     self.idx += 1
 
     self.states[idx]  = obs
     self.actions[idx] = action
-    self.rewards[idx] = reward
     self.values[idx] = values
-    self.dones[idx] = done
 
   def sample(self, batch_size):
     indices = np.random.choice(self.size, size=batch_size, replace=False)
     states  = torch.tensor( self.states[indices] , dtype=torch.float).to(device)
     actions = torch.tensor( self.actions[indices], dtype=torch.float).to(device)
-    rewards = torch.tensor( self.rewards[indices], dtype=torch.float).to(device)
     values  = torch.tensor( self.values[indices], dtype=torch.float).to(device)
-    dones   = torch.tensor( self.dones[indices] ).float()
-    return states, actions, rewards, values, dones
+    return states, actions, values
 
 class Node:
   def __init__(self, prior: float):
@@ -61,12 +57,12 @@ class AlphaZero:
   def __init__(self, in_dims, out_dims):
     self.model = ActorCritic(in_dims, out_dims).to(device)
     self.memory = ReplayBuffer(in_dims, out_dims, device=device)
-  def softmax(self, x):
+  def softmax(self, x):#
     e_x = np.exp(x - np.max(x))
     return e_x / e_x.sum()
 
-  def store(self, obs,action,reward,_obs,done):
-    self.memory.store(obs,action,reward,_obs,done)
+  def store(self, obs,action,value):
+    self.memory.store(obs,action,value)
     
   def ucb_score(self, parent: Node, child: Node, MinMaxStats=None) -> float:
     # a Node's score is based on its value, plus an exploration bonus based on the prior.
@@ -131,27 +127,20 @@ class AlphaZero:
     visit_counts = [x[1] for x in sorted(visit_counts)]
     av = np.array(visit_counts).astype(np.float64)
     policy = self.softmax(av)
-    action = np.argmax(policy)
-    return action, value, root
-
-  ## vanila Policy gradient for debugging
-  def debug_get_action(self, obs):
-    policy, value = self.model(torch.tensor(obs))
-    action = torch.argmax(policy).numpy()
-    return action, value 
+    return policy, value, root
 
   def train(self, batch_size=128):
-    if(len(self.memory) >= 1000):
+    if(len(self.memory) >= 10):
       for i in range(10):
-        states, actions, rewards, values, dones = self.memory.sample(batch_size)
+        states, actions, values = self.memory.sample(batch_size)
         pi, v = self.model(states)
 
         policy_loss = -(actions * torch.log(pi)).sum(dim=1) #*(1-dones)
         policy_loss = policy_loss.mean()
         value_loss = torch.sum((values-v.view(-1))**2)/values.size()[0]
+        #value_loss = torch.sum(F.smooth_l1_loss(values, v.view(-1)))
 
         loss = policy_loss + value_loss
-        #print(loss)
 
         self.model.optimizer.zero_grad()
         loss.backward()
@@ -168,14 +157,12 @@ for epi in range(1000):
   while True:
 
     #env.render()
-    action, value, _ = agent.MCTS(env, obs, 10)
-    #action, value = agent.debug_get_action(obs)
-
+    policy, value, _ = agent.MCTS(env, obs, 10)
+    action = np.argmax(policy)
     n_obs, reward, done, info = env.step(action)
+    agent.store(obs,policy,value)
 
-    agent.store(n_obs,action,reward,value,done)
     obs = n_obs
-
     agent.train()
 
     if "episode" in info.keys():
