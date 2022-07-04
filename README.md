@@ -1,4 +1,4 @@
-# AlphaZero
+# AlphaZero-CartPole
 A simple implementation of DeepMind's AlphaZero on OpenAI's Cartpole gym. Very simple implementation, tree depth is only set to 1
 
 
