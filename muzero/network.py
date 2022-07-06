@@ -55,6 +55,23 @@ class Prediction(nn.Module):
     value  = self.fc_v(x)
     policy = self.fc_pi(x)
     return policy, value
+class Model:
+  def __init__(self, in_dims, out_dims):
+    self._g = Dynamics(in_dims, out_dims)
+    self._f = Prediction(in_dims, out_dims)
+    self._h = Representation(in_dims, out_dims)
+  def h(self, obs):
+    obs = torch.tensor(obs)
+    return self._h(obs)
+
+  def g(self, s, a):
+    nstate, reward = self._g(s, a)
+    return reward.detach().numpy()[0], nstate
+
+  def f(self, s):
+    policy, value = self._f(s)
+    action = policy.detach().numpy().argmax()
+    return action, policy, value
 
 if __name__ == '__main__':
   import gym
@@ -64,23 +81,6 @@ if __name__ == '__main__':
   # dynamics:        r_k, s_k = g(s_km1, a_k)
   # prediction:      p_k, v_k = f(s_k)
 
-  class Model:
-    def __init__(self, in_dims, out_dims):
-      self._g = Dynamics(in_dims, out_dims)
-      self._f = Prediction(in_dims, out_dims)
-      self._h = Representation(in_dims, out_dims)
-    def h(self, obs):
-      obs = torch.tensor(obs)
-      return self._h(obs)
-
-    def g(self, s, a):
-      nstate, reward = self._g(s, a)
-      return nstate, reward.detach().numpy()[0]
-
-    def f(self, s):
-      policy, value = self._f(s)
-      action = policy.detach().numpy().argmax()
-      return action, policy, value
 
   mm = Model(env.observation_space.shape[0], env.action_space.n)
 
@@ -91,7 +91,7 @@ if __name__ == '__main__':
     while not done:
       _state = mm.h(obs)
       action, policy, _value = mm.f(_state)
-      _nstate, _reward = mm.g(_state, policy)
+      _reward, _nstate = mm.g(_state, policy)
 
       n_obs, reward, done, _ = env.step(action)
       score += reward
