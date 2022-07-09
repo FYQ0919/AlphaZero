@@ -70,7 +70,7 @@ class MuZero:
     action = np.array([1 if i==action_index else 0 for i in range(len(node.children))]) #.reshape(1,-1) 
     return action, child
     
-  def mcts(self, obs, num_simulations=10):
+  def mcts(self, obs, num_simulations=10, temperature=None):
     # init root node
     root = Node(0) 
     root.hidden_state = self.model.h(obs)
@@ -121,12 +121,36 @@ class MuZero:
 
     # Each node represents a potential action, number of visits to each node - normalized
     # (by a softmax) represent the probabilty of taking that action. This is our policy
-    visit_counts = [(action, child.visit_count) for action, child in root.children.items()]
-    visit_counts = [x[1] for x in sorted(visit_counts)]
-    av = np.array(visit_counts).astype(np.float64)
-    policy = self.softmax(av)
+    #visit_counts = [(action, child.visit_count) for action, child in root.children.items()]
+    #visit_counts = [x[1] for x in sorted(visit_counts)]
+    #av = np.array(visit_counts).astype(np.float64)
+    #policy = self.softmax(av)
+
+    # SAMPLE an action proportional to the visit count of the child nodes of the root node
+    total_num_visits = sum([ child.visit_count for action, child in root.children.items() ])
+    policy = np.array( [ child.visit_count/total_num_visits for action, child in root.children.items()])
+
+    if temperature == None: # take the greedy action (to be used during test time)
+        action_index = np.argmax(policy)
+    else: # otherwise sample (to be used during training)
+        policy = (policy**(1/temperature)) / (policy**(1/temperature)).sum()
+        action_index = np.random.choice( np.arange(len(policy)) , p=policy )
+
+    ## update Game search statistics
+    #game.value_history.append( root_node.cumulative_value/root_node.num_visits ) # use the root node's MCTS value as the ground truth value when training
+    #game.policy_history.append(policy) # use the MCTS policy as the ground truth value when training
+
     return policy, value, root
 
+def get_temperature(num_iter):
+  # as num_iter increases, temperature decreases, and actions become greedier
+  if num_iter < 100: return 3
+  elif num_iter < 200: return 2
+  elif num_iter < 300: return 1
+  elif num_iter < 400: return .5
+  elif num_iter < 500: return .25
+  elif num_iter < 600: return .125
+  else: return .0625
 
 
 env = gym.make('CartPole-v1')
@@ -139,7 +163,7 @@ for epi in range(1000):
   while True:
 
     #env.render()
-    policy, value, _ = agent.mcts(obs, 1)
+    policy, value, _ = agent.mcts(obs, 1, get_temperature(epi))
     action = np.argmax(policy)
     #action = env.action_space.sample()
 
