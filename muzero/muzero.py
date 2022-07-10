@@ -9,6 +9,37 @@ from network import Model
 
 device='cpu'
 
+class ReplayBuffer():
+  def __init__(self, obs_dim, act_dim, length=50000, device=device):
+    self.states  = np.zeros((length, obs_dim))
+    self.actions = np.zeros((length, act_dim))
+    self.rewards = np.zeros(length)
+    self.nstates = np.zeros((length, obs_dim))
+    self.values  = np.zeros(length)
+    self.size = length
+    self.idx  = 0
+
+  def __len__(self): return self.idx
+
+  def store(self,obs,policy,reward,n_obs,value):
+    idx = self.idx % self.size
+    self.idx += 1
+
+    self.states[idx]  = obs
+    self.actions[idx] = policy
+    self.rewards[idx] = reward
+    self.nstates[idx] = n_obs
+    self.values[idx]  = value
+
+  def sample(self, batch_size):
+    indices = np.random.choice(self.size, size=batch_size, replace=False)
+    states  = torch.tensor( self.states[indices] , dtype=torch.float).to(device)
+    actions = torch.tensor( self.actions[indices], dtype=torch.float).to(device)
+    rewards = torch.tensor( self.rewards[indices], dtype=torch.float).to(device)
+    nstates = torch.tensor( self.nstates[indices], dtype=torch.float).to(device)
+    values  = torch.tensor( self.values[indices], dtype=torch.float).to(device)
+    return states, actions, rewards, nstates, values
+
 class Node:
   def __init__(self, prior: float):
     self.prior = prior       # prior policy probabilities
@@ -32,7 +63,7 @@ class Node:
 class MuZero:
   def __init__(self, in_dims, out_dims):
     self.model  = Model(in_dims, out_dims)
-    #self.memory = ReplayBuffer(in_dims, out_dims, device=device)
+    self.memory = ReplayBuffer(in_dims, out_dims, device=device)
 
     self.discount  = 0.95
     self.pb_c_base = 19652
@@ -41,9 +72,6 @@ class MuZero:
   def softmax(self, x):
     e_x = np.exp(x - np.max(x))
     return e_x / e_x.sum()
-
-  #def store(self, obs,action,value):
-  #  self.memory.store(obs,action,value)
 
   def ucb_score(self, parent: Node, child: Node, min_max_stats=None) -> float:
      """
@@ -59,11 +87,6 @@ class MuZero:
      return prior_score + value_score
 
   def select_child(self, node: Node):
-    ## We select child using UCT
-    #out = [(self.ucb_score(node,child),action,child)for action, child in node.children.items()]
-    #smax = max([x[0] for x in out])     # this max is why it favors 1's over 0's
-    #_, action, child = random.choice(list(filter(lambda x: x[0] == smax, out)))
-
     total_visits_count = max(1 , sum([child.visit_count  for action, child in node.children.items()]) )
     action_index = np.argmax([self.ucb_score(node,child).detach().numpy() for action, child in node.children.items()])
     child  = node.children[action_index]
@@ -82,11 +105,6 @@ class MuZero:
       #root.children[i].to_play = -root.to_play
 
     # run mcts
-
-    # keep track of min and max mean-Q values to normalize them during selection phase
-    # this is for environments that have unbounded Q-values, otherwise the prior could 
-    # potentially have very little influence over selection, if Q-values are large
-    # min_q_value, max_q_value = root.value, root.value 
     for _ in range(num_simulations):
       node = root 
       search_path = [node] # nodes in the tree that we select
@@ -102,9 +120,9 @@ class MuZero:
       parent = search_path[-2]
       action = torch.tensor(action_history[-1])
  
-      # use the model to estimate the policy and value, use policy as prior
-      # run the dynamics model then use predict a policy and a value
-      node.reward, node.hidden_state = self.model.g(parent.hidden_state, action)
+      # run the dynamics model then use the ouput to predict a policy and a value
+      node.reward, node.hidden_state = self.model.g(torch.cat([parent.hidden_state,action],dim=0))
+      #node.reward, node.hidden_state = self.model.g(parent.hidden_state, action)
       action, policy, value = self.model.f( node.hidden_state )
 
       # create all the children of the newly expanded node
@@ -119,13 +137,6 @@ class MuZero:
         discount = 0.95
         value = bnode.reward + discount * value
 
-    # Each node represents a potential action, number of visits to each node - normalized
-    # (by a softmax) represent the probabilty of taking that action. This is our policy
-    #visit_counts = [(action, child.visit_count) for action, child in root.children.items()]
-    #visit_counts = [x[1] for x in sorted(visit_counts)]
-    #av = np.array(visit_counts).astype(np.float64)
-    #policy = self.softmax(av)
-
     # SAMPLE an action proportional to the visit count of the child nodes of the root node
     total_num_visits = sum([ child.visit_count for action, child in root.children.items() ])
     policy = np.array( [ child.visit_count/total_num_visits for action, child in root.children.items()])
@@ -136,11 +147,20 @@ class MuZero:
         policy = (policy**(1/temperature)) / (policy**(1/temperature)).sum()
         action_index = np.random.choice( np.arange(len(policy)) , p=policy )
 
-    ## update Game search statistics
-    #game.value_history.append( root_node.cumulative_value/root_node.num_visits ) # use the root node's MCTS value as the ground truth value when training
-    #game.policy_history.append(policy) # use the MCTS policy as the ground truth value when training
-
     return policy, value, root
+
+  def train(self, batch_size=128):
+    if(len(self.memory) >= 256):
+      for i in range(10):
+        obs, actions, rewards, n_obs, values = self.memory.sample(batch_size)
+
+        ### get predictions 
+        states = self.model.h(obs)
+        _, pi, v = self.model.f(states)
+        rew, nstate = self.model.g( torch.cat([states,actions],dim=1) )
+
+        ### make targets ###
+    pass
 
 def get_temperature(num_iter):
   # as num_iter increases, temperature decreases, and actions become greedier
@@ -151,7 +171,6 @@ def get_temperature(num_iter):
   elif num_iter < 500: return .25
   elif num_iter < 600: return .125
   else: return .0625
-
 
 env = gym.make('CartPole-v1')
 env = gym.wrappers.RecordEpisodeStatistics(env)
@@ -168,10 +187,10 @@ for epi in range(1000):
     #action = env.action_space.sample()
 
     n_obs, reward, done, info = env.step(action)
-    #agent.store(obs,policy,value)
+    agent.memory.store(obs,policy,reward,n_obs,value)
 
     obs = n_obs
-    #agent.train()
+    agent.train()
 
     if "episode" in info.keys(): 
       scores.append(int(info['episode']['r']))

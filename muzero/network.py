@@ -10,11 +10,11 @@ import torch.nn.functional as F
 # prediction:      p_k, v_k = f(s_k)
 
 class Representation(nn.Module):
-  def __init__(self, in_dims, out_dims, lr=0.0005):
+  def __init__(self, in_dims, out_dims, lr=0.0001):
     super(Representation, self).__init__()
-    self.fc_1 = nn.Linear(in_dims, 32)
-    self.fc_2 = nn.Linear(32, 32) 
-    self.fc_3 = nn.Linear(32, in_dims)
+    self.fc_1 = nn.Linear(in_dims, 256)
+    self.fc_2 = nn.Linear(256, 256) 
+    self.fc_3 = nn.Linear(256, in_dims)
     self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
   def forward(self, x):
@@ -24,16 +24,15 @@ class Representation(nn.Module):
     return state
 
 class Dynamics(nn.Module):
-  def __init__(self, in_dims, out_dims, lr=0.0005):
+  def __init__(self, in_dims, out_dims, lr=0.0001):
     super(Dynamics, self).__init__()
-    self.fc_1 = nn.Linear(in_dims+out_dims, 32)
-    self.fc_2 = nn.Linear(32, 32) 
-    self.fc_s = nn.Linear(32, in_dims) # change this
-    self.fc_r = nn.Linear(32, 1)
+    self.fc_1 = nn.Linear(in_dims+out_dims, 256)
+    self.fc_2 = nn.Linear(256, 256) 
+    self.fc_s = nn.Linear(256, in_dims) # change this
+    self.fc_r = nn.Linear(256, 1)
     self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
-  def forward(self, s, a):
-    x = torch.cat([s,a],dim=0)
+  def forward(self, x):
     x = F.relu(self.fc_1(x))
     x = F.relu(self.fc_2(x)) 
     nstate = self.fc_s(x)
@@ -43,10 +42,10 @@ class Dynamics(nn.Module):
 class Prediction(nn.Module):
   def __init__(self, in_dims, out_dims, lr=0.0001):
     super(Prediction, self).__init__()
-    self.fc_1 = nn.Linear(in_dims, 32)
-    self.fc_2 = nn.Linear(32, 32) 
-    self.fc_v = nn.Linear(32, 1)
-    self.fc_pi = nn.Linear(32, out_dims)
+    self.fc_1  = nn.Linear(in_dims, 256)
+    self.fc_2  = nn.Linear(256, 256) 
+    self.fc_v  = nn.Linear(256, 1)
+    self.fc_pi = nn.Linear(256, out_dims)
     self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
   def forward(self, x):
@@ -64,8 +63,8 @@ class Model:
     obs = torch.tensor(obs)
     return self._h(obs)
 
-  def g(self, s, a):
-    nstate, reward = self._g(s, a)
+  def g(self, x):
+    nstate, reward = self._g(x)
     return reward.detach().numpy()[0], nstate
 
   def f(self, s):
@@ -91,7 +90,7 @@ if __name__ == '__main__':
     while not done:
       _state = mm.h(obs)
       action, policy, _value = mm.f(_state)
-      _reward, _nstate = mm.g(_state, policy)
+      _reward, _nstate = mm.g(torch.cat([_state, policy],dim=0))
 
       n_obs, reward, done, _ = env.step(action)
       score += reward
