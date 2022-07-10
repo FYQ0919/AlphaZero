@@ -3,6 +3,7 @@ import math
 import random
 import numpy as np
 import torch.nn as nn
+from copy import deepcopy
 
 import torch
 import torch.nn.functional as F
@@ -155,14 +156,14 @@ class MuZero:
       for i in range(10):
         obs, actions, rewards, n_obs, values = self.memory.sample(batch_size)
 
-        ### get predictions 
         states = self.model.h(obs)
-        _, pi, v = self.model.f(states)
-        _reward, nstate = self.model.g( torch.cat([states,actions],dim=1) )
+        _, pi, _values = self.model.f(states)
+        _rewards, nstate = self.model.g( torch.cat([states,actions],dim=1) )
 
-        lr = lossfunc(rewards, _reward).to(device)
-        lv = lossfunc(values, v).to(device)
-        lp = lossfunc(actions, pi).mean().to(device)
+        lr = F.smooth_l1_loss(rewards, _rewards).mean()
+        lv = F.smooth_l1_loss(values, _values).mean()
+        lp = lossfunc(actions, pi).mean()
+
         loss = lr+lv+lp
 
         self.model._f.optimizer.zero_grad()
