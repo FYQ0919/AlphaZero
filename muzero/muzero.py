@@ -2,6 +2,7 @@ import gym
 import math
 import random
 import numpy as np
+import torch.nn as nn
 
 import torch
 import torch.nn.functional as F
@@ -122,7 +123,6 @@ class MuZero:
  
       # run the dynamics model then use the ouput to predict a policy and a value
       node.reward, node.hidden_state = self.model.g(torch.cat([parent.hidden_state,action],dim=0))
-      #node.reward, node.hidden_state = self.model.g(parent.hidden_state, action)
       action, policy, value = self.model.f( node.hidden_state )
 
       # create all the children of the newly expanded node
@@ -150,6 +150,7 @@ class MuZero:
     return policy, value, root
 
   def train(self, batch_size=128):
+    lossfunc = nn.CrossEntropyLoss()
     if(len(self.memory) >= 256):
       for i in range(10):
         obs, actions, rewards, n_obs, values = self.memory.sample(batch_size)
@@ -157,9 +158,24 @@ class MuZero:
         ### get predictions 
         states = self.model.h(obs)
         _, pi, v = self.model.f(states)
-        rew, nstate = self.model.g( torch.cat([states,actions],dim=1) )
+        _reward, nstate = self.model.g( torch.cat([states,actions],dim=1) )
 
-        ### make targets ###
+        lr = lossfunc(rewards, _reward).to(device)
+        lv = lossfunc(values, v).to(device)
+        lp = lossfunc(actions, pi).mean().to(device)
+        loss = lr+lv+lp
+
+        self.model._f.optimizer.zero_grad()
+        loss.backward()
+        self.model._f.optimizer.step()
+
+        #self.model._h.optimizer.zero_grad()
+        #loss.backward()
+        #self.model._h.optimizer.step()
+
+        #self.model._g.optimizer.zero_grad()
+        #loss.backward()
+        #self.model._g.optimizer.step()
     pass
 
 def get_temperature(num_iter):

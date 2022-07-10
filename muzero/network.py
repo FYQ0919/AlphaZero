@@ -65,12 +65,12 @@ class Model:
 
   def g(self, x):
     nstate, reward = self._g(x)
-    return reward.detach().numpy()[0], nstate
+    return reward.squeeze().detach(), nstate
 
   def f(self, s):
     policy, value = self._f(s)
     action = policy.detach().numpy().argmax()
-    return action, policy, value
+    return action, policy, value.squeeze()
 
 if __name__ == '__main__':
   import gym
