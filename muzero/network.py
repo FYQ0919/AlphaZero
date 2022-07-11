@@ -15,7 +15,7 @@ class Representation(nn.Module):
     self.fc_1 = nn.Linear(in_dims, 256)
     self.fc_2 = nn.Linear(256, 256) 
     self.fc_3 = nn.Linear(256, in_dims)
-    self.optimizer = optim.Adam(self.parameters(), lr=lr)
+    #self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
   def forward(self, x):
     x = F.relu(self.fc_1(x))
@@ -30,7 +30,7 @@ class Dynamics(nn.Module):
     self.fc_2 = nn.Linear(256, 256) 
     self.fc_s = nn.Linear(256, in_dims) # change this
     self.fc_r = nn.Linear(256, 1)
-    self.optimizer = optim.Adam(self.parameters(), lr=lr)
+    #self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
   def forward(self, x):
     x = F.relu(self.fc_1(x))
@@ -46,7 +46,7 @@ class Prediction(nn.Module):
     self.fc_2  = nn.Linear(256, 256) 
     self.fc_v  = nn.Linear(256, 1)
     self.fc_pi = nn.Linear(256, out_dims)
-    self.optimizer = optim.Adam(self.parameters(), lr=lr)
+    #self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
   def forward(self, x):
     x = F.relu(self.fc_1(x))
@@ -54,11 +54,14 @@ class Prediction(nn.Module):
     value  = self.fc_v(x)
     policy = self.fc_pi(x)
     return policy, value
-class Model:
+
+class Model(nn.Module):
   def __init__(self, in_dims, out_dims):
+    super(Model, self).__init__()
     self._g = Dynamics(in_dims, out_dims)
     self._f = Prediction(in_dims, out_dims)
     self._h = Representation(in_dims, out_dims)
+    self.optimizer = optim.Adam(self.parameters(), lr=0.001)
   def h(self, obs):
     obs = torch.tensor(obs)
     return self._h(obs)

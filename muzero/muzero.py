@@ -165,10 +165,12 @@ class MuZero:
         lp = lossfunc(actions, pi).mean()
 
         loss = lr+lv+lp
+        print(loss)
 
-        self.model._f.optimizer.zero_grad()
-        loss.backward()
-        self.model._f.optimizer.step()
+        #  https://github.com/werner-duvaud/muzero-general/blob/0825bd544fc172a2e2dcc96d43711123222c4a2f/trainer.py
+        #self.model.optimizer.zero_grad()
+        #loss.backward()
+        #self.model.optimizer.step()
 
         #self.model._h.optimizer.zero_grad()
         #loss.backward()
