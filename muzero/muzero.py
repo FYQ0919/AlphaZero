@@ -7,7 +7,7 @@ from copy import deepcopy
 
 import torch
 import torch.nn.functional as F
-from network import Model 
+from network import MuZeroNetwork
 
 device='cpu'
 
@@ -64,7 +64,7 @@ class Node:
 
 class MuZero:
   def __init__(self, in_dims, out_dims):
-    self.model  = Model(in_dims, out_dims)
+    self.model  = MuZeroNetwork(in_dims, out_dims)
     self.memory = ReplayBuffer(in_dims, out_dims, device=device)
 
     self.discount  = 0.95
@@ -98,10 +98,10 @@ class MuZero:
   def mcts(self, obs, num_simulations=10, temperature=None):
     # init root node
     root = Node(0) 
-    root.hidden_state = self.model.h(obs)
+    root.hidden_state = self.model.ht(obs)
 
     ## EXPAND root node
-    action, policy, value = self.model.f(root.hidden_state)
+    policy, value = self.model.ft(root.hidden_state)
     for i in range(policy.shape[0]):
       root.children[i] = Node(prior=policy[i])
       #root.children[i].to_play = -root.to_play
@@ -123,8 +123,8 @@ class MuZero:
       action = torch.tensor(action_history[-1])
  
       # run the dynamics model then use the ouput to predict a policy and a value
-      node.reward, node.hidden_state = self.model.g(torch.cat([parent.hidden_state,action],dim=0))
-      action, policy, value = self.model.f( node.hidden_state )
+      node.reward, node.hidden_state = self.model.gt(torch.cat([parent.hidden_state,action],dim=0))
+      policy, value = self.model.ft( node.hidden_state )
 
       # create all the children of the newly expanded node
       for i in range(policy.shape[0]):
@@ -156,29 +156,21 @@ class MuZero:
       for i in range(10):
         obs, actions, rewards, n_obs, values = self.memory.sample(batch_size)
 
-        states = self.model.h(obs)
-        _, pi, _values = self.model.f(states)
-        _rewards, nstate = self.model.g( torch.cat([states,actions],dim=1) )
+        states = self.model.ht(obs)
+        pi, v = self.model.ft(states)
+        rew, nstate = self.model.gt( torch.cat([states,actions],dim=1) )
 
-        lr = F.smooth_l1_loss(rewards, _rewards).mean()
-        lv = F.smooth_l1_loss(values, _values).mean()
+        lr = F.smooth_l1_loss(rewards, rew).mean()
+        lv = F.smooth_l1_loss(values, v).mean()
         lp = lossfunc(actions, pi).mean()
 
         loss = lr+lv+lp
-        print(loss)
+        #print(loss)
 
         #  https://github.com/werner-duvaud/muzero-general/blob/0825bd544fc172a2e2dcc96d43711123222c4a2f/trainer.py
-        #self.model.optimizer.zero_grad()
-        #loss.backward()
-        #self.model.optimizer.step()
-
-        #self.model._h.optimizer.zero_grad()
-        #loss.backward()
-        #self.model._h.optimizer.step()
-
-        #self.model._g.optimizer.zero_grad()
-        #loss.backward()
-        #self.model._g.optimizer.step()
+        self.model.optimizer.zero_grad()
+        loss.backward()
+        self.model.optimizer.step()
     pass
 
 def get_temperature(num_iter):

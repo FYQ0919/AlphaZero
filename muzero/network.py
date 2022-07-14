@@ -1,105 +1,80 @@
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
 
-# Model(f,g,h)
 # representation:  s_0 = h(o_1, ..., o_t)
 # dynamics:        r_k, s_k = g(s_km1, a_k)
 # prediction:      p_k, v_k = f(s_k)
 
-class Representation(nn.Module):
-  def __init__(self, in_dims, out_dims, lr=0.0001):
-    super(Representation, self).__init__()
-    self.fc_1 = nn.Linear(in_dims, 256)
-    self.fc_2 = nn.Linear(256, 256) 
-    self.fc_3 = nn.Linear(256, in_dims)
-    #self.optimizer = optim.Adam(self.parameters(), lr=lr)
-
-  def forward(self, x):
-    x = F.relu(self.fc_1(x))
-    x = F.relu(self.fc_2(x)) 
-    state = self.fc_3(x)
-    return state
-
-class Dynamics(nn.Module):
-  def __init__(self, in_dims, out_dims, lr=0.0001):
-    super(Dynamics, self).__init__()
-    self.fc_1 = nn.Linear(in_dims+out_dims, 256)
-    self.fc_2 = nn.Linear(256, 256) 
-    self.fc_s = nn.Linear(256, in_dims) # change this
-    self.fc_r = nn.Linear(256, 1)
-    #self.optimizer = optim.Adam(self.parameters(), lr=lr)
-
-  def forward(self, x):
-    x = F.relu(self.fc_1(x))
-    x = F.relu(self.fc_2(x)) 
-    nstate = self.fc_s(x)
-    reward = self.fc_r(x)
-    return nstate, reward
-
-class Prediction(nn.Module):
-  def __init__(self, in_dims, out_dims, lr=0.0001):
-    super(Prediction, self).__init__()
-    self.fc_1  = nn.Linear(in_dims, 256)
-    self.fc_2  = nn.Linear(256, 256) 
-    self.fc_v  = nn.Linear(256, 1)
-    self.fc_pi = nn.Linear(256, out_dims)
-    #self.optimizer = optim.Adam(self.parameters(), lr=lr)
-
-  def forward(self, x):
-    x = F.relu(self.fc_1(x))
-    x = F.relu(self.fc_2(x)) 
-    value  = self.fc_v(x)
-    policy = self.fc_pi(x)
-    return policy, value
-
-class Model(nn.Module):
+class MuZeroNetwork(nn.Module):
   def __init__(self, in_dims, out_dims):
-    super(Model, self).__init__()
-    self._g = Dynamics(in_dims, out_dims)
-    self._f = Prediction(in_dims, out_dims)
-    self._h = Representation(in_dims, out_dims)
+    super().__init__()
+    hidden_state = in_dims
+
+    self.representation_net  = nn.Sequential(
+      nn.Linear(in_dims, 256), nn.ReLU(),
+      nn.Linear(256, 256),     nn.ReLU(),
+      nn.Linear(256, 256),     nn.ReLU(),
+      nn.Linear(256, hidden_state)
+    )
+
+    self.dynamics_net  = nn.Sequential(
+      nn.Linear(hidden_state+out_dims, 256), nn.ReLU(),
+      nn.Linear(256, 256),     nn.ReLU(),
+      nn.Linear(256, 256),     nn.ReLU()
+    )
+    self.dyn_reward = nn.Linear(256, 1)
+    self.dyn_nstate = nn.Linear(256, hidden_state)
+    
+    self.prediction_net  = nn.Sequential(
+      nn.Linear(in_dims, 256), nn.ReLU(),
+      nn.Linear(256, 256),     nn.ReLU(),
+      nn.Linear(256, 256),     nn.ReLU()
+    )
+    self.pred_value  = nn.Linear(256, 1)
+    self.pred_policy = nn.Linear(256, out_dims)
+
     self.optimizer = optim.Adam(self.parameters(), lr=0.001)
-  def h(self, obs):
+
+  def ht(self, obs):  
     obs = torch.tensor(obs)
-    return self._h(obs)
+    x = self.representation_net(obs)
+    return x
 
-  def g(self, x):
-    nstate, reward = self._g(x)
-    return reward.squeeze().detach(), nstate
+  def gt(self, state_action):        
+    x = self.dynamics_net(state_action)
+    reward = self.dyn_reward(x)
+    nstate = self.dyn_nstate(x)
+    return reward.detach()[0], nstate
 
-  def f(self, s):
-    policy, value = self._f(s)
-    action = policy.detach().numpy().argmax()
-    return action, policy, value.squeeze()
+  def ft(self, state):    
+    x = self.prediction_net(state)
+    value  = self.pred_value(x)
+    policy = self.pred_policy(x)
+    return policy, value
 
 if __name__ == '__main__':
   import gym
   env = gym.make('CartPole-v1')
 
-  # representation:  s_0 = h(o_1, ..., o_t)
-  # dynamics:        r_k, s_k = g(s_km1, a_k)
-  # prediction:      p_k, v_k = f(s_k)
+  mm = MuZeroNetwork(env.observation_space.shape[0], env.action_space.n)
 
-
-  mm = Model(env.observation_space.shape[0], env.action_space.n)
-
-  for epi in range(50):
-    obs = env.reset()
-    done = False
+  for epi in range(10):
     score, _score = 0, 0
+    obs,done = env.reset(), False
     while not done:
-      _state = mm.h(obs)
-      action, policy, _value = mm.f(_state)
-      _reward, _nstate = mm.g(torch.cat([_state, policy],dim=0))
+      state = mm.ht( obs )
+      policy, value = mm.ft( state )
+      action = policy.argmax().detach().numpy()
+      rew, nstate = mm.gt(torch.cat([state, policy],dim=0) )
+
+      #action, rew = env.action_space.sample(), 0
 
       n_obs, reward, done, _ = env.step(action)
       score += reward
-      _score += _reward
+      _score += rew
       obs = n_obs
-    print(f'Episode:{epi}  Score:{score} Predicted score:{_score}')
+    print(f'Episode:{epi} Score:{score} Predicted score:{_score}')
   env.close()
 
 
