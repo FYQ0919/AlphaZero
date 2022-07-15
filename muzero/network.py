@@ -11,28 +11,26 @@ class MuZeroNetwork(nn.Module):
     super().__init__()
     hidden_state = in_dims
 
+
     self.representation_net  = nn.Sequential(
-      nn.Linear(in_dims, 256), nn.ReLU(),
-      nn.Linear(256, 256),     nn.ReLU(),
-      nn.Linear(256, 256),     nn.ReLU(),
-      nn.Linear(256, hidden_state)
+      nn.Linear(in_dims, 64), nn.ReLU(),
+      nn.Linear(64, 64),      nn.ReLU(),
+      nn.Linear(64, hidden_state)
     )
 
     self.dynamics_net  = nn.Sequential(
-      nn.Linear(hidden_state+out_dims, 256), nn.ReLU(),
-      nn.Linear(256, 256),     nn.ReLU(),
-      nn.Linear(256, 256),     nn.ReLU()
+      nn.Linear(hidden_state+out_dims, 64), nn.ReLU(),
+      nn.Linear(64, 64),      nn.ReLU(),
     )
-    self.dyn_reward = nn.Linear(256, 1)
-    self.dyn_nstate = nn.Linear(256, hidden_state)
+    self.dyn_reward = nn.Linear(64, 1)
+    self.dyn_nstate = nn.Linear(64, hidden_state)
     
     self.prediction_net  = nn.Sequential(
-      nn.Linear(in_dims, 256), nn.ReLU(),
-      nn.Linear(256, 256),     nn.ReLU(),
-      nn.Linear(256, 256),     nn.ReLU()
+      nn.Linear(in_dims, 64), nn.ReLU(),
+      nn.Linear(64, 64),      nn.ReLU(),
     )
-    self.pred_value  = nn.Linear(256, 1)
-    self.pred_policy = nn.Linear(256, out_dims)
+    self.pred_value  = nn.Linear(64, 1)
+    self.pred_policy = nn.Linear(64, out_dims)
 
     self.optimizer = optim.Adam(self.parameters(), lr=0.001)
 
@@ -43,13 +41,13 @@ class MuZeroNetwork(nn.Module):
 
   def gt(self, state_action):        
     x = self.dynamics_net(state_action)
-    reward = self.dyn_reward(x)
+    reward = self.dyn_reward(x).squeeze().detach()
     nstate = self.dyn_nstate(x)
-    return reward.detach()[0], nstate
+    return reward, nstate
 
   def ft(self, state):    
     x = self.prediction_net(state)
-    value  = self.pred_value(x)
+    value  = self.pred_value(x).squeeze().detach()
     policy = self.pred_policy(x)
     return policy, value
 
@@ -67,6 +65,7 @@ if __name__ == '__main__':
       policy, value = mm.ft( state )
       action = policy.argmax().detach().numpy()
       rew, nstate = mm.gt(torch.cat([state, policy],dim=0) )
+      print(value )
 
       #action, rew = env.action_space.sample(), 0
 

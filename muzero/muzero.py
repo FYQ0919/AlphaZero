@@ -153,24 +153,43 @@ class MuZero:
   def train(self, batch_size=128):
     lossfunc = nn.CrossEntropyLoss()
     if(len(self.memory) >= 256):
-      for i in range(10):
-        obs, actions, rewards, n_obs, values = self.memory.sample(batch_size)
+      obs, target_policys, target_rewards, n_obs, target_values = self.memory.sample(batch_size)
+      lossFunc = torch.nn.BCELoss() # binary cross entropy 
 
-        states = self.model.ht(obs)
-        pi, v = self.model.ft(states)
-        rew, nstate = self.model.gt( torch.cat([states,actions],dim=1) )
+      """
+      lv,lp,lr = 0,0,0
+      gradient_scale = 1
+      num_unroll_steps = 5
+      for i in range(0, num_unroll_steps+1):
+        if i > 0:
+          gradient_scale = 1/(num_unroll_steps)
+          #values, rewards, policy_logits, states = network.recurrent_inference(states, actions[:,i-1].unsqueeze(-1))
+          #hidden_states.register_hook(lambda grad: grad*0.5)
+        states = self.model.ht(obs[i])
+        policys, values  = self.model.ft(states)
+        rewards, nstates = self.model.gt( torch.cat([states, policys],dim=0) )
 
-        lr = F.smooth_l1_loss(rewards, rew).mean()
-        lv = F.smooth_l1_loss(values, v).mean()
-        lp = lossfunc(actions, pi).mean()
+        lv += lossFunc( F.softmax(values, dim=0), target_values[i]) * gradient_scale
+        lr += lossFunc( F.softmax(rewards,dim=0), target_rewards[i])* gradient_scale
+        lp += lossFunc( F.softmax(policys,dim=0), target_policys[i,:])* gradient_scale
+      loss = lr+lv+lp
+      """
 
-        loss = lr+lv+lp
-        #print(loss)
+      states = self.model.ht(obs)
+      policys, values  = self.model.ft(states)
+      rewards, nstates = self.model.gt( torch.cat([states, policys],dim=1) )
 
-        #  https://github.com/werner-duvaud/muzero-general/blob/0825bd544fc172a2e2dcc96d43711123222c4a2f/trainer.py
-        self.model.optimizer.zero_grad()
-        loss.backward()
-        self.model.optimizer.step()
+      lv = lossFunc( F.softmax(values, dim=0), target_values)
+      lr = lossFunc( F.softmax(rewards,dim=0), target_rewards)
+      lp = lossFunc( F.softmax(policys,dim=1), target_policys)
+      loss = lr+lv+lp
+
+      print(loss)
+      #  https://github.com/werner-duvaud/muzero-general/blob/0825bd544fc172a2e2dcc96d43711123222c4a2f/trainer.py
+      self.model.optimizer.zero_grad()
+      loss.backward()
+      torch.nn.utils.clip_grad_norm_(self.model.parameters(),1)
+      self.model.optimizer.step()
     pass
 
 def get_temperature(num_iter):
